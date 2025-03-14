@@ -1,0 +1,17 @@
+What is the difference between a Coroutine and a Thread?
+Source: https://stackoverflow.com/questions/1934715/difference-between-a-coroutine-and-a-thread
+
+Coroutines are managed by the user and are similar to
+generator based implementations like async/await in other languages.
+A coroutine is not bound to any particular thread.
+It may suspend its execution in one thread and resume in another one.
+Coroutines are less resource-intensive than JVM threads.
+For coroutines, the thread wont get blocked and there is no switching cost.
+(The coroutine just suspends the execution)
+Threads have their own stack, whereas coroutines use share memory.
+
+What is the meaning of the suspend keyword?
+Simple functions can be annotated by the suspend keyword
+so that they can perform their execution asynchronously.
+A suspended function must be called from another suspended function
+or a coroutine scope.
