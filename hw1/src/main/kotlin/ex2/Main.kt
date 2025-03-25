@@ -1,10 +1,8 @@
 package ex2
 
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlin.system.measureTimeMillis
 
 fun main(args : Array<String>) {
     val brand = Brand("Audi", "Germany", "918231698", "audi@audi.com")
