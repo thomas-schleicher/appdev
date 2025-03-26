@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Assignment2_3_and_4</string>
+
+    <!-- activity_main.xml -->
+    <string name="et_address_hint">Enter an address</string>
+    <string name="btn_send_text">Send</string>
+
+    <string name="btn_google_maps">Google Maps</string>
+</resources>
