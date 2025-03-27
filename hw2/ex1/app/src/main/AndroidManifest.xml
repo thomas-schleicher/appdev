@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Hello_World_Compose"
+        tools:targetApi="31">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.Hello_World_Compose">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+    <!--
+    There are 4 Types of App Components:
+    1. Activity like here, which represents a screen and interaction with the user. (+ intent declaration)
+    2. Service, which runs in the background and fulfills its job (e.g. playing music)
+    3. Receiver, which detects system-wide broadcast messages/intents (e.b. low battery)
+    4. Provider, which defines and manages app data even between apps
+
+    Yes there may be different entry points that can be defined when e.g. you open the app via services/receivers...
+    They are defined with the <intent-filter>, where the action tag defines what the intent wants to do
+    and the category tag defines how this intent may be triggered (browsable - open app via web link; launcher - from home screen)
+
+    Desktop applications are different, because for the most part these only have one entry point (main())
+    and mostly one function that takes control of the application. In Android, because we have a whole lifecycle framework and
+    need to react to changes fast without costing too many resources. So actions often start background services
+    that can be easily stopped and by the android framework.
+
+    R is an auto-generated class that holds references to all resources in the "res" directory
+    So when you want to use some predefined strings (language EN, DE), images or so they are stored in this directory
+    and can be accessed via R: R.string.world
+    -->
+
+</manifest>
