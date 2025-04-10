@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity() {
                 }
                 composable(
                     "webpage/{url}",
-                    deepLinks = listOf(navDeepLink { uriPattern = "Navigation_1://webpage/{url}" })
+                    deepLinks = listOf(navDeepLink { uriPattern = "navigation_1://webpage/{url}" })
                 ) { backStackEntry ->
                     val encodedUrl = backStackEntry.arguments?.getString("url")
                     if(!encodedUrl.isNullOrEmpty()) {
@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity() {
                 }
                 composable(
                     "localization/{location}",
-                    deepLinks = listOf(navDeepLink { uriPattern = "Navigation_1://localization/geo:0,0?q={location}" })
+                    deepLinks = listOf(navDeepLink { uriPattern = "navigation_1://localization/geo:0,0?q={location}" })
                 ) { backStackEntry ->
                     val location = backStackEntry.arguments?.getString("location")
                     if (!location.isNullOrEmpty()) {
@@ -124,16 +124,16 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 composable(
-                    "pdf?uri={Uri}", //? because the "/" would create problems (document%3A1000034343 => document:1000034343)
+                    "pdf?uri={encodedUri}", //? because the "/" would create problems (document%3A1000034343 => document:1000034343)
                     arguments = listOf(
-                        navArgument("Uri") {
+                        navArgument("encodedUri") {
                             type = NavType.StringType
                             nullable = false
                         }
                     ),
-                    deepLinks = listOf(navDeepLink { uriPattern = "Navigation_1://pdf?uri={Uri}" })
+                    deepLinks = listOf(navDeepLink { uriPattern = "navigation_1://pdf?uri={encodedUri}" })
                 ) { backStackEntry ->
-                    val encodedUri = backStackEntry.arguments?.getString("Uri")!!
+                    val encodedUri = backStackEntry.arguments?.getString("encodedUri")!!
                     val uriFormatted = encodedUri.toUri() // to URI format
 
                     val context = LocalContext.current
@@ -177,7 +177,8 @@ fun DrawerContent(navController: NavController, drawerState: DrawerState){
             Log.d("PDFUri", "Permission granted for URI: $uri")
 
             selectedPdfUri = it
-            navController.navigate("pdf?uri=$selectedPdfUri")
+            val encodedUri = Uri.encode(selectedPdfUri.toString())
+            navController.navigate("pdf?uri=$encodedUri")
         }
     }
     ModalDrawerSheet {
@@ -221,7 +222,8 @@ fun DrawerContent(navController: NavController, drawerState: DrawerState){
             if(selectedPdfUri == null) {
                 openPdfLauncher.launch(arrayOf("application/pdf"))
             }else{
-                navController.navigate("pdf?uri=$selectedPdfUri")
+                val encodedUri = Uri.encode(selectedPdfUri.toString())
+                navController.navigate("pdf?uri=$encodedUri")
             }
 
         })
