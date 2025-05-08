@@ -91,7 +91,7 @@ fun TransformScreen() {
                     translationY = offset.y
                 }
         ) {
-            defaultOffset = Offset(center.x-imageBitmap.width/2, center.y-imageBitmap.height/2)
+            //defaultOffset = Offset(center.x-imageBitmap.width/2, center.y-imageBitmap.height/2)
             drawImage(
                 image = imageBitmap,
                 topLeft = Offset(center.x-imageBitmap.width/2, center.y-imageBitmap.height/2) // Change this to position the image
