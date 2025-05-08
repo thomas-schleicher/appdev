@@ -1,0 +1,51 @@
+Bonus Questions:
+- What is the difference between a touch event and a gesture?
+    - Touch-Event (Berührungsereignis):
+        Ein Touch-Event ist ein einzelnes, niedrigstufiges Ereignis, das auftritt, wenn ein Benutzer den Bildschirm berührt.
+        Typische Touch-Events sind:
+            - ACTION_DOWN → Finger berührt den Bildschirm
+            - ACTION_MOVE → Finger bewegt sich auf dem Bildschirm
+            - ACTION_UP → Finger wird vom Bildschirm genommen
+        Touch-Events sind roh, d.h. man bekommt einfach nur die Info: "Der Finger ist an Position X".
+    - Geste (Gesture):
+        Eine Geste ist eine abstrakte Interpretation mehrerer Touch-Events.
+        Das System oder du als Entwickler interpretierst aus den rohen Touch-Daten eine bestimmte Bewegung.
+        Typische Gesten sind:
+            - Tap (kurzes Tippen)
+            - Long Press (länger gedrückt halten)
+            - Swipe (schnelles Wischen)
+            - Pinch/Zoom (zwei Finger auseinander/zusammen)
+        Gesten sind also logische Muster, die aus mehreren Touch-Events bestehen.
+
+- Which single touch gestures are supported by Android?
+    Tap, Double Tap, Long Press (Long Tap), Drag (Pan), Fling (Quick Swipe)
+    Nicht inkludiert: Pinch / Zoom und Rotate, da diese Multitouch benötigen
+
+- Describe the typical lifecycle of a touch gesture in Compose. Include
+  stages like down, move, and up (or cancel).
+    Finger runter  →  bewegt sich  →  Finger hoch / abgebrochen
+        - DOWN (Finger berührt den Bildschirm)
+        - MOVE (Finger bewegt sich auf dem Bildschirm)
+        - UP (Finger wird vom Bildschirm genommen)
+        - CANCEL (optional – Geste wird abgebrochen)
+
+- How does Compose differentiate between similar gestures like tap, long-
+  press, and double-tap? What utility functions exist to help with this?
+    - Zeitdauer: Wie lange bleibt der Finger auf dem Bildschirm?
+    - Anzahl der Taps: Wie oft tippt der Nutzer in kurzer Zeit?
+    - Bewegung: Hat sich der Finger dabei bewegt?
+
+    Jetpack Compose stellt dafür eine Funktion bereit:
+    modifier.pointerInput(Unit) {
+        detectTapGestures(
+            onTap = { /* einfacher Tipp */ },
+            onDoubleTap = { /* Doppeltipp */ },
+            onLongPress = { /* Langes Drücken */ },
+            onPress = { /* Berührung beginnt */ }
+        )
+    }
+
+    Was macht detectTapGestures intern?
+    - Erkennt, ob es sich um einen Tipp, einen Doppeltipp oder einen Long-Press handelt
+    - Nutzt dabei Zeitmessung und Bewegungserkennung
+    - Filtert Bewegungen heraus, die z.B. zu einem Drag führen würden
