@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,9 +22,13 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +55,10 @@ sealed class CurrencyConverterUiState {
     data class Error(val message: String) : CurrencyConverterUiState()
 }
 
-class CurrencyConverterViewModelFactory(private val currencyRateDao: CurrencyRateDAO, private val context: Context) : ViewModelProvider.Factory {
+class CurrencyConverterViewModelFactory(
+    private val currencyRateDao: CurrencyRateDAO,
+    private val context: Context
+) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(CurrencyConverterViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
@@ -66,6 +74,9 @@ class CurrencyConverterViewModel(
 ) : ViewModel() {
     private val OPEN_EXCHANGE_RATES_APP_ID = "38ea160901f248a29c1a1281f19ddcf0"
 
+    private val userPreferencesRepository = UserPreferencesRepository(context)
+    val userPreferences = userPreferencesRepository.userPreferences
+
     private val _uiState = MutableLiveData<CurrencyConverterUiState>()
     val uiState: LiveData<CurrencyConverterUiState> = _uiState
 
@@ -76,30 +87,52 @@ class CurrencyConverterViewModel(
         fetchLatestConversionRates()
     }
 
+    fun saveBaseCurrency(currency: String) {
+        viewModelScope.launch {
+            userPreferencesRepository.saveBaseCurrency(currency)
+        }
+    }
+
+    fun saveLastTargetCurrency(currency: String) {
+        viewModelScope.launch {
+            userPreferencesRepository.saveLastTargetCurrency(currency)
+        }
+    }
+
+    fun saveDarkMode(isDarkMode: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.saveDarkMode(isDarkMode)
+        }
+    }
+
     fun fetchLatestConversionRates() {
         viewModelScope.launch {
             _uiState.value = CurrencyConverterUiState.Loading
             if (isNetworkAvailable(context)) {
                 try {
-                    val response = RetrofitClient.openExchangeRatesService.getLatestRates(OPEN_EXCHANGE_RATES_APP_ID)
+                    val response = RetrofitClient.openExchangeRatesService.getLatestRates(
+                        OPEN_EXCHANGE_RATES_APP_ID
+                    )
                     if (response.isSuccessful) {
                         response.body()?.let { responseBody ->
                             val rates = responseBody.rates
                             _currentRates = rates
                             _uiState.value = CurrencyConverterUiState.Success(rates)
 
-                            val currencyRatesToInsert = rates.map { (currencyAbbreviation, rateValue) ->
-                                CurrencyRate(
-                                    currencyAbbreviation = currencyAbbreviation,
-                                    rate = rateValue,
-                                    timestamp = System.currentTimeMillis()
-                                )
-                            }
+                            val currencyRatesToInsert =
+                                rates.map { (currencyAbbreviation, rateValue) ->
+                                    CurrencyRate(
+                                        currencyAbbreviation = currencyAbbreviation,
+                                        rate = rateValue,
+                                        timestamp = System.currentTimeMillis()
+                                    )
+                                }
                             withContext(Dispatchers.IO) {
                                 currencyRateDao.insertAll(currencyRatesToInsert)
                             }
                         } ?: run {
-                            _uiState.value = CurrencyConverterUiState.Error("Empty response body from API. Trying to load from cache.")
+                            _uiState.value =
+                                CurrencyConverterUiState.Error("Empty response body from API. Trying to load from cache.")
                             loadCachedRates()
                         }
                     } else {
@@ -110,18 +143,21 @@ class CurrencyConverterViewModel(
                         loadCachedRates()
                     }
                 } catch (e: Exception) {
-                    _uiState.value = CurrencyConverterUiState.Error("Network/Parsing Error: ${e.message}. Trying to load from cache.")
+                    _uiState.value =
+                        CurrencyConverterUiState.Error("Network/Parsing Error: ${e.message}. Trying to load from cache.")
                     loadCachedRates()
                 }
             } else {
-                _uiState.value = CurrencyConverterUiState.Error("No network available. Loading cached rates.")
+                _uiState.value =
+                    CurrencyConverterUiState.Error("No network available. Loading cached rates.")
                 loadCachedRates()
             }
         }
     }
 
     private fun isNetworkAvailable(context: Context): Boolean {
-        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val connectivityManager =
+            context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val network = connectivityManager.activeNetwork ?: return false
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
         return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
@@ -170,117 +206,165 @@ class CurrencyConverterViewModel(
 @Composable
 fun CurrencyConverterView(viewModel: CurrencyConverterViewModel, paddingValues: PaddingValues) {
     val uiState by viewModel.uiState.observeAsState(initial = CurrencyConverterUiState.Loading)
+    val userPreferences by viewModel.userPreferences.collectAsState(
+        initial = UserPreferences("USD", "EUR", false)
+    )
 
     var amountInput by remember { mutableStateOf("") }
     var selectedFromCurrency by remember { mutableStateOf("USD") }
     var selectedToCurrency by remember { mutableStateOf("EUR") }
     var convertedResult by remember { mutableStateOf<String>("") }
     var statusMessage by remember { mutableStateOf("Ready to convert") }
+    var showSettings by remember { mutableStateOf(false) }
 
     val availableCurrencies = when (uiState) {
-        is CurrencyConverterUiState.Success -> (uiState as CurrencyConverterUiState.Success).rates.keys.sorted().toList()
+        is CurrencyConverterUiState.Success -> (uiState as CurrencyConverterUiState.Success).rates.keys.sorted()
+            .toList()
         else -> emptyList()
     }
 
-    //TODO: check if the default selected currencies are available and choose alternatives if they are not
-    Box(
-        modifier = Modifier.padding(paddingValues)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Top
+    LaunchedEffect(userPreferences) {
+        selectedFromCurrency = userPreferences.baseCurrency
+        selectedToCurrency = userPreferences.lastTargetCurrency
+    }
+
+    if (showSettings) {
+        SettingsScreen(
+            viewModel = viewModel,
+            onBackClick = { showSettings = false }
+        )
+    } else {
+        //TODO: check if the default selected currencies are available and choose alternatives if they are not
+        Box(
+            modifier = Modifier.padding(paddingValues)
         ) {
-            Text("Currency Converter")
-            OutlinedTextField(
-                value = amountInput,
-                onValueChange = { newValue ->
-                    val filteredValue = newValue.filter { it.isDigit() || it == '.' }
-                    if (filteredValue.count { it == '.' } <= 1) {
-                        amountInput = filteredValue
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Top
+            ) {
+                // Add Settings Button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Currency Converter",
+                        style = MaterialTheme.typography.headlineMedium
+                    )
+                    TextButton(
+                        onClick = { showSettings = true }
+                    ) {
+                        Text("Settings")
                     }
-                },
-                label = { Text("Amount")},
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            CurrencySelector(
-                label = "From Currency",
-                selectedCurrency = selectedFromCurrency,
-                currencies = availableCurrencies,
-                onCurrencySelected = { selectedFromCurrency = it },
-                isEnabled = uiState !is CurrencyConverterUiState.Loading && availableCurrencies.isNotEmpty()
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            CurrencySelector(
-                label = "To Currency",
-                selectedCurrency = selectedToCurrency,
-                currencies = availableCurrencies,
-                onCurrencySelected = { selectedToCurrency = it },
-                isEnabled = uiState !is CurrencyConverterUiState.Loading && availableCurrencies.isNotEmpty()
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-            Button(
-                onClick = {
-                    val amount = amountInput.toDoubleOrNull()
-                    if (amount != null && amount > 0) {
-                        val converted = viewModel.convertCurrency(selectedFromCurrency, selectedToCurrency, amount)
-                        if (converted != null) {
-                            val df = DecimalFormat("#,##0.00")
-                            convertedResult = "${df.format(converted)} $selectedToCurrency"
-                            statusMessage = "Conversion successful!"
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = amountInput,
+                    onValueChange = { newValue ->
+                        val filteredValue = newValue.filter { it.isDigit() || it == '.' }
+                        if (filteredValue.count { it == '.' } <= 1) {
+                            amountInput = filteredValue
+                        }
+                    },
+                    label = { Text("Amount") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                CurrencySelector(
+                    label = "From Currency",
+                    selectedCurrency = selectedFromCurrency,
+                    currencies = availableCurrencies,
+                    onCurrencySelected = {
+                        selectedFromCurrency = it
+                        viewModel.saveBaseCurrency(it)
+                    },
+                    isEnabled = uiState !is CurrencyConverterUiState.Loading && availableCurrencies.isNotEmpty()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                CurrencySelector(
+                    label = "To Currency",
+                    selectedCurrency = selectedToCurrency,
+                    currencies = availableCurrencies,
+                    onCurrencySelected = {
+                        selectedToCurrency = it
+                        viewModel.saveLastTargetCurrency(it)
+                    },
+                    isEnabled = uiState !is CurrencyConverterUiState.Loading && availableCurrencies.isNotEmpty()
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(
+                    onClick = {
+                        val amount = amountInput.toDoubleOrNull()
+                        if (amount != null && amount > 0) {
+                            val converted = viewModel.convertCurrency(
+                                selectedFromCurrency,
+                                selectedToCurrency,
+                                amount
+                            )
+                            if (converted != null) {
+                                val df = DecimalFormat("#,##0.00")
+                                convertedResult = "${df.format(converted)} $selectedToCurrency"
+                                statusMessage = "Conversion successful!"
+                            } else {
+                                convertedResult = ""
+                                statusMessage =
+                                    "Conversion error: Invalid currencies or rates not available."
+                            }
                         } else {
                             convertedResult = ""
-                            statusMessage = "Conversion error: Invalid currencies or rates not available."
+                            statusMessage = "Please enter a valid amount."
                         }
-                    } else {
-                        convertedResult = ""
-                        statusMessage = "Please enter a valid amount."
-                    }
-                },
-                enabled = uiState is CurrencyConverterUiState.Success && amountInput.toDoubleOrNull() != null && amountInput.toDouble() > 0,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Convert")
-            }
-            Spacer(modifier = Modifier.height(24.dp))
+                    },
+                    enabled = uiState is CurrencyConverterUiState.Success && amountInput.toDoubleOrNull() != null && amountInput.toDouble() > 0,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Convert")
+                }
+                Spacer(modifier = Modifier.height(24.dp))
 
-            when (uiState) {
-                is CurrencyConverterUiState.Loading -> {
-                    Text("Fetching rates...", modifier = Modifier.padding(top = 8.dp))
-                }
-                is CurrencyConverterUiState.Success -> {
-                    Text(text = statusMessage)
-                }
-                is CurrencyConverterUiState.Error -> {
-                    val errorMessage = (uiState as CurrencyConverterUiState.Error).message
-                    Text(text = "Error: $errorMessage")
-                    Button(onClick = { viewModel.fetchLatestConversionRates() }) {
-                        Text("Retry Fetching Rates")
+                when (uiState) {
+                    is CurrencyConverterUiState.Loading -> {
+                        Text("Fetching rates...", modifier = Modifier.padding(top = 8.dp))
+                    }
+
+                    is CurrencyConverterUiState.Success -> {
+                        Text(text = statusMessage)
+                    }
+
+                    is CurrencyConverterUiState.Error -> {
+                        val errorMessage = (uiState as CurrencyConverterUiState.Error).message
+                        Text(text = "Error: $errorMessage")
+                        Button(onClick = { viewModel.fetchLatestConversionRates() }) {
+                            Text("Retry Fetching Rates")
+                        }
                     }
                 }
-            }
 
-            if (convertedResult.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "Converted Value:",
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                        Text(
-                            text = convertedResult,
-                            fontSize = 32.sp
-                        )
+                if (convertedResult.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier
+                                .padding(16.dp)
+                                .fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Converted Value:",
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                            Text(
+                                text = convertedResult,
+                                fontSize = 32.sp
+                            )
+                        }
                     }
                 }
             }
