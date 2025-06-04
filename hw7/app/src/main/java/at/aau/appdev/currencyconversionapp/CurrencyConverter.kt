@@ -1,0 +1,273 @@
+package at.aau.appdev.currencyconversionapp
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.launch
+import java.text.DecimalFormat
+
+sealed class CurrencyConverterUiState {
+    data object Loading : CurrencyConverterUiState()
+    data class Success(val rates: Map<String, Double>) : CurrencyConverterUiState()
+    data class Error(val message: String) : CurrencyConverterUiState()
+}
+
+class CurrencyConverterViewModel : ViewModel() {
+    private val OPEN_EXCHANGE_RATES_APP_ID = "38ea160901f248a29c1a1281f19ddcf0"
+
+    private val _uiState = MutableLiveData<CurrencyConverterUiState>()
+    val uiState: LiveData<CurrencyConverterUiState> = _uiState
+
+    private var _currentRates: Map<String, Double>? = null
+    val currentRates: Map<String, Double>? get() = _currentRates
+
+    init {
+        fetchLatestConversionRates()
+    }
+
+    fun fetchLatestConversionRates() {
+        viewModelScope.launch {
+            try {
+                val response = RetrofitClient.openExchangeRatesService.getLatestRates(OPEN_EXCHANGE_RATES_APP_ID)
+                if (response.isSuccessful) {
+                    response.body()?.let {
+                        _currentRates = it.rates
+                        _uiState.value = CurrencyConverterUiState.Success(it.rates)
+                    } ?: run {
+                        _uiState.value = CurrencyConverterUiState.Error("Empty response body from API.")
+                    }
+                } else {
+                    val errorBody = response.errorBody()?.string() ?: "Unknown error"
+                    _uiState.value = CurrencyConverterUiState.Error(
+                        "API Error: ${response.code()} - ${response.message()} - $errorBody"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.value = CurrencyConverterUiState.Error("Network/Parsing Error: ${e.message}")
+            }
+        }
+    }
+
+    fun convertCurrency(fromCurrency: String, toCurrency: String, amount: Double): Double? {
+        val rates = currentRates
+        if (rates == null || fromCurrency.isEmpty() || toCurrency.isEmpty()) {
+            return null
+        }
+
+        if (fromCurrency.equals(toCurrency, ignoreCase = true)) {
+            return amount
+        }
+
+        val rateFromUsd: Double? = rates[fromCurrency.uppercase()]
+        val rateToUsd: Double? = rates[toCurrency.uppercase()]
+        if (rateFromUsd == null || rateToUsd == null || rateFromUsd == 0.0) {
+            return null
+        }
+
+        val amountInUsd = amount / rateFromUsd
+        return amountInUsd * rateToUsd
+    }
+
+    fun getAvailableCurrencies(): List<String> {
+        return _currentRates?.keys?.sorted()?.toList() ?: emptyList()
+    }
+}
+
+@Composable
+fun CurrencyConverterView(viewModel: CurrencyConverterViewModel, paddingValues: PaddingValues) {
+    val uiState by viewModel.uiState.observeAsState(initial = CurrencyConverterUiState.Loading)
+
+    var amountInput by remember { mutableStateOf("") }
+    var selectedFromCurrency by remember { mutableStateOf("USD") }
+    var selectedToCurrency by remember { mutableStateOf("EUR") }
+    var convertedResult by remember { mutableStateOf<String>("") }
+    var statusMessage by remember { mutableStateOf("Ready to convert") }
+
+    val availableCurrencies = when (uiState) {
+        is CurrencyConverterUiState.Success -> (uiState as CurrencyConverterUiState.Success).rates.keys.sorted().toList()
+        else -> emptyList()
+    }
+
+    //TODO: check if the default selected currencies are available and choose alternatives if they are not
+    Box(
+        modifier = Modifier.padding(paddingValues)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Top
+        ) {
+            Text("Currency Converter")
+            OutlinedTextField(
+                value = amountInput,
+                onValueChange = { newValue ->
+                    val filteredValue = newValue.filter { it.isDigit() || it == '.' }
+                    if (filteredValue.count { it == '.' } <= 1) {
+                        amountInput = filteredValue
+                    }
+                },
+                label = { Text("Amount")},
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            CurrencySelector(
+                label = "From Currency",
+                selectedCurrency = selectedFromCurrency,
+                currencies = availableCurrencies,
+                onCurrencySelected = { selectedFromCurrency = it },
+                isEnabled = uiState !is CurrencyConverterUiState.Loading && availableCurrencies.isNotEmpty()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            CurrencySelector(
+                label = "To Currency",
+                selectedCurrency = selectedToCurrency,
+                currencies = availableCurrencies,
+                onCurrencySelected = { selectedToCurrency = it },
+                isEnabled = uiState !is CurrencyConverterUiState.Loading && availableCurrencies.isNotEmpty()
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(
+                onClick = {
+                    val amount = amountInput.toDoubleOrNull()
+                    if (amount != null && amount > 0) {
+                        val converted = viewModel.convertCurrency(selectedFromCurrency, selectedToCurrency, amount)
+                        if (converted != null) {
+                            val df = DecimalFormat("#,##0.00")
+                            convertedResult = "${df.format(converted)} $selectedToCurrency"
+                            statusMessage = "Conversion successful!"
+                        } else {
+                            convertedResult = ""
+                            statusMessage = "Conversion error: Invalid currencies or rates not available."
+                        }
+                    } else {
+                        convertedResult = ""
+                        statusMessage = "Please enter a valid amount."
+                    }
+                },
+                enabled = uiState is CurrencyConverterUiState.Success && amountInput.toDoubleOrNull() != null && amountInput.toDouble() > 0,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Convert")
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+
+            when (uiState) {
+                is CurrencyConverterUiState.Loading -> {
+                    Text("Fetching rates...", modifier = Modifier.padding(top = 8.dp))
+                }
+                is CurrencyConverterUiState.Success -> {
+                    Text(text = statusMessage)
+                }
+                is CurrencyConverterUiState.Error -> {
+                    val errorMessage = (uiState as CurrencyConverterUiState.Error).message
+                    Text(text = "Error: $errorMessage")
+                    Button(onClick = { viewModel.fetchLatestConversionRates() }) {
+                        Text("Retry Fetching Rates")
+                    }
+                }
+            }
+
+            if (convertedResult.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Converted Value:",
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                        Text(
+                            text = convertedResult,
+                            fontSize = 32.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CurrencySelector(
+    label: String,
+    selectedCurrency: String,
+    currencies: List<String>,
+    onCurrencySelected: (String) -> Unit,
+    isEnabled: Boolean = true
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    OutlinedTextField(
+        value = selectedCurrency,
+        onValueChange = {},
+        label = { Text(label) },
+        readOnly = true,
+        enabled = isEnabled,
+        trailingIcon = {
+            Icon(
+                Icons.Default.ArrowDropDown,
+                contentDescription = "Dropdown arrow",
+                Modifier.clickable(enabled = isEnabled) { expanded = !expanded }
+            )
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = isEnabled) { expanded = true }
+    )
+
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = { expanded = false },
+        modifier = Modifier.fillMaxWidth(0.8f)
+    ) {
+        currencies.forEach { currency ->
+            DropdownMenuItem(
+                text = { Text(text = currency) },
+                onClick = {
+                    onCurrencySelected(currency)
+                    expanded = false
+                }
+            )
+        }
+    }
+}
