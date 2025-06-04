@@ -1,5 +1,8 @@
 package at.aau.appdev.currencyconversionapp
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,7 +22,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,8 +37,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DecimalFormat
 
 sealed class CurrencyConverterUiState {
@@ -45,7 +50,20 @@ sealed class CurrencyConverterUiState {
     data class Error(val message: String) : CurrencyConverterUiState()
 }
 
-class CurrencyConverterViewModel : ViewModel() {
+class CurrencyConverterViewModelFactory(private val currencyRateDao: CurrencyRateDAO, private val context: Context) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(CurrencyConverterViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            return CurrencyConverterViewModel(currencyRateDao, context) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class")
+    }
+}
+
+class CurrencyConverterViewModel(
+    private val currencyRateDao: CurrencyRateDAO,
+    private val context: Context
+) : ViewModel() {
     private val OPEN_EXCHANGE_RATES_APP_ID = "38ea160901f248a29c1a1281f19ddcf0"
 
     private val _uiState = MutableLiveData<CurrencyConverterUiState>()
@@ -60,24 +78,67 @@ class CurrencyConverterViewModel : ViewModel() {
 
     fun fetchLatestConversionRates() {
         viewModelScope.launch {
-            try {
-                val response = RetrofitClient.openExchangeRatesService.getLatestRates(OPEN_EXCHANGE_RATES_APP_ID)
-                if (response.isSuccessful) {
-                    response.body()?.let {
-                        _currentRates = it.rates
-                        _uiState.value = CurrencyConverterUiState.Success(it.rates)
-                    } ?: run {
-                        _uiState.value = CurrencyConverterUiState.Error("Empty response body from API.")
+            _uiState.value = CurrencyConverterUiState.Loading
+            if (isNetworkAvailable(context)) {
+                try {
+                    val response = RetrofitClient.openExchangeRatesService.getLatestRates(OPEN_EXCHANGE_RATES_APP_ID)
+                    if (response.isSuccessful) {
+                        response.body()?.let { responseBody ->
+                            val rates = responseBody.rates
+                            _currentRates = rates
+                            _uiState.value = CurrencyConverterUiState.Success(rates)
+
+                            val currencyRatesToInsert = rates.map { (currencyAbbreviation, rateValue) ->
+                                CurrencyRate(
+                                    currencyAbbreviation = currencyAbbreviation,
+                                    rate = rateValue,
+                                    timestamp = System.currentTimeMillis()
+                                )
+                            }
+                            withContext(Dispatchers.IO) {
+                                currencyRateDao.insertAll(currencyRatesToInsert)
+                            }
+                        } ?: run {
+                            _uiState.value = CurrencyConverterUiState.Error("Empty response body from API. Trying to load from cache.")
+                            loadCachedRates()
+                        }
+                    } else {
+                        val errorBody = response.errorBody()?.string() ?: "Unknown error"
+                        _uiState.value = CurrencyConverterUiState.Error(
+                            "API Error: ${response.code()} - ${response.message()} - $errorBody. Trying to load from cache."
+                        )
+                        loadCachedRates()
                     }
-                } else {
-                    val errorBody = response.errorBody()?.string() ?: "Unknown error"
-                    _uiState.value = CurrencyConverterUiState.Error(
-                        "API Error: ${response.code()} - ${response.message()} - $errorBody"
-                    )
+                } catch (e: Exception) {
+                    _uiState.value = CurrencyConverterUiState.Error("Network/Parsing Error: ${e.message}. Trying to load from cache.")
+                    loadCachedRates()
                 }
-            } catch (e: Exception) {
-                _uiState.value = CurrencyConverterUiState.Error("Network/Parsing Error: ${e.message}")
+            } else {
+                _uiState.value = CurrencyConverterUiState.Error("No network available. Loading cached rates.")
+                loadCachedRates()
             }
+        }
+    }
+
+    private fun isNetworkAvailable(context: Context): Boolean {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+    }
+
+    private suspend fun loadCachedRates() {
+        val cachedRates = withContext(Dispatchers.IO) {
+            currencyRateDao.getAllRates()
+        }
+        if (cachedRates.isNotEmpty()) {
+            val ratesMap = cachedRates.associate { it.currencyAbbreviation to it.rate }
+            _currentRates = ratesMap
+            _uiState.postValue(CurrencyConverterUiState.Success(ratesMap))
+        } else {
+            _uiState.postValue(CurrencyConverterUiState.Error("No cached rates available."))
         }
     }
 
