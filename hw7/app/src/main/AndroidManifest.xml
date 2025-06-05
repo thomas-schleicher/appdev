@@ -14,7 +14,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.CurrencyConversionApp"
-        tools:targetApi="31">
+        >
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -29,7 +29,6 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
             android:theme="@style/Theme.CurrencyConversionApp">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
